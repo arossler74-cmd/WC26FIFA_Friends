@@ -1000,6 +1000,15 @@ select.input-select:focus { outline: none; border-color: var(--gold); }
       </div>
     </div>
     
+        <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><strong>🔑 Results API Key</strong></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Paste your free <strong>API-Football</strong> key (from dashboard.api-football.com). It's stored in Firestore and used only by the server to fetch scores — never shown to players. <span id="apiKeyStatus" style="color:#4ADE94;font-weight:700"></span></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input type="password" id="apiKeyInput" placeholder="Paste API-Football key" style="flex:1;min-width:220px;padding:10px 12px;background:var(--dark);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+        <button class="btn btn-gold" onclick="saveApiKey()">Save key</button>
+      </div>
+    </div>
+
     <div id="adminPhaseControl" class="card" style="margin-bottom:20px">
       <div class="card-header"><strong>Betting Phase Control</strong></div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px">The <strong>active phase</strong> is what players see on "My Bets". Open or close each phase's betting independently.</div>
@@ -1999,7 +2008,7 @@ function showPage(page) {
   if(page === "schedule") renderSchedule();
   if(page === "scoreboard") loadScoreboard();
   if(page === "admin-users") loadUsers();
-  if(page === "admin-results") { buildResultGroupTabs(); loadAdminResults(); loadPointsConfig(); }
+  if(page === "admin-results") { buildResultGroupTabs(); loadAdminResults(); loadPointsConfig(); loadApiKeyStatus(); }
   if(page === "admin-invites") loadInviteLink();
   if(page === "admin-points") loadPointsConfig();
 }
@@ -2640,9 +2649,83 @@ function copyInviteLink() {
 //  ADMIN: CONTRIBUTIONS
 // ═══════════════════════════════════════════════════════════
 
+async function saveApiKey() {
+  if(!isAdmin) return;
+  const v = document.getElementById("apiKeyInput").value.trim();
+  if(!v) { showToast("Paste a key first.", "error"); return; }
+  try {
+    await col("config").doc("apiKeys").set({ apiSports: v, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    document.getElementById("apiKeyInput").value = "";
+    showToast("✅ API key saved");
+    loadApiKeyStatus();
+  } catch(e) { showToast("Error: " + e.message, "error"); }
+}
+async function loadApiKeyStatus() {
+  if(!isAdmin) return;
+  const el = document.getElementById("apiKeyStatus");
+  if(!el) return;
+  try {
+    const d = await col("config").doc("apiKeys").get();
+    const k = d.exists ? d.data().apiSports : null;
+    el.textContent = k ? "✓ key saved (••••" + String(k).slice(-4) + ")" : "— no key saved yet";
+    el.style.color = k ? "#4ADE94" : "var(--muted)";
+  } catch(e) {}
+}
+
 async function fetchLiveResults() {
-  showToast("🔄 Live results require an external API integration (e.g. api-football.com)", "error", 4000);
-  // Placeholder: in production, call a football data API like api-football.com
+  if(!isAdmin) return;
+  showToast("🔄 Fetching results…");
+  try {
+    if(typeof firebase.functions !== "function") throw new Error("Functions SDK not loaded");
+    const call = firebase.functions().httpsCallable("fetchWcResults");
+    const resp = await call({});
+    const fixtures = (resp.data && resp.data.fixtures) || [];
+    if(!fixtures.length) { showToast("No finished matches yet.", "error", 3500); return; }
+
+    const ALIAS = {
+      "korea republic":"south korea","korea south":"south korea","south korea":"south korea",
+      "czech republic":"czechia","czechia":"czechia",
+      "usa":"united states","united states of america":"united states","united states":"united states",
+      "bosnia and herzegovina":"bosnia","bosnia herzegovina":"bosnia","bosnia":"bosnia",
+      "turkiye":"turkey","turkey":"turkey",
+      "cote d ivoire":"ivory coast","cote divoire":"ivory coast","ivory coast":"ivory coast",
+      "ir iran":"iran","islamic republic of iran":"iran","iran":"iran",
+      "cabo verde":"cape verde","cape verde":"cape verde",
+      "congo dr":"dr congo","democratic republic of the congo":"dr congo","dr congo":"dr congo","congo democratic republic":"dr congo"
+    };
+    const norm = (s) => {
+      const base = (s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+        .toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+      return ALIAS[base] || base;
+    };
+
+    const byPair = {};
+    GROUP_MATCHES.forEach(m => { byPair[[norm(m.homeTeam), norm(m.awayTeam)].sort().join("|")] = m; });
+
+    let updated = 0; const unmatched = [];
+    for(const fx of fixtures) {
+      if(fx.homeGoals == null || fx.awayGoals == null) continue;
+      const nh = norm(fx.home), na = norm(fx.away);
+      const m = byPair[[nh, na].sort().join("|")];
+      if(!m) { unmatched.push(fx.home + " vs " + fx.away); continue; }
+      const sameOrder = norm(m.homeTeam) === nh;
+      await col("results").doc(m.id).set({
+        matchId: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam,
+        homeGoals: sameOrder ? fx.homeGoals : fx.awayGoals,
+        awayGoals: sameOrder ? fx.awayGoals : fx.homeGoals,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(), auto: true
+      });
+      updated++;
+    }
+    showToast("✅ Updated " + updated + " result" + (updated===1?"":"s") + (unmatched.length ? " · " + unmatched.length + " unmatched (check console)" : ""));
+    if(unmatched.length) console.warn("Unmatched fixtures:", unmatched);
+    if(typeof loadAdminResults === "function") loadAdminResults();
+  } catch(e) {
+    const msg = e.message || String(e);
+    if(/not-found|INTERNAL|not deployed|Functions SDK|precondition|No API key/i.test(msg))
+      showToast("Set up the API key first (Results API Key) and deploy the function.", "error", 4500);
+    else showToast("Fetch failed: " + msg, "error", 4500);
+  }
 }
 
 async function recalculateAllScores() {
