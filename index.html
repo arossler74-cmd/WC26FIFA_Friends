@@ -700,6 +700,10 @@ select.input-select {
   color: var(--text); font-size: 13px; font-family: 'Archivo', sans-serif;
 }
 select.input-select:focus { outline: none; border-color: var(--gold); }
+.live-badge{display:inline-flex;align-items:center;gap:5px;background:#E11D48;color:#fff;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;letter-spacing:.3px;animation:livePulse 1.4s ease-in-out infinite;white-space:nowrap;vertical-align:middle}
+.live-badge .dot{width:7px;height:7px;border-radius:50%;background:#fff;animation:liveDot 1.4s ease-in-out infinite}
+@keyframes livePulse{0%,100%{box-shadow:0 0 0 0 rgba(225,29,72,.5)}50%{box-shadow:0 0 0 6px rgba(225,29,72,0)}}
+@keyframes liveDot{0%,100%{opacity:1}50%{opacity:.3}}
 </style>
 </head>
 <body>
@@ -960,7 +964,7 @@ select.input-select:focus { outline: none; border-color: var(--gold); }
         <div class="section-title">🏆 Leaderboard</div>
         <div class="section-sub">Overall pool standings</div>
       </div>
-      <button class="btn btn-ghost" onclick="loadScoreboard()">↻ Refresh</button>
+      <div style="display:flex;gap:10px"><button class="btn btn-gold" onclick="openEmailLeaderboard()">📧 Email Version</button><button class="btn btn-ghost" onclick="loadScoreboard()">↻ Refresh</button></div>
     </div>
 
     <div class="stats-grid" id="sbStats">
@@ -1000,16 +1004,7 @@ select.input-select:focus { outline: none; border-color: var(--gold); }
       </div>
     </div>
     
-        <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><strong>🔑 Results API Key</strong></div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Paste your free <strong>football-data.org</strong> API token (register free at football-data.org/client/register). Stored in Firestore, used only by the server to fetch scores — never shown to players. <span id="apiKeyStatus" style="color:#4ADE94;font-weight:700"></span></div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <input type="password" id="apiKeyInput" placeholder="Paste football-data.org API token" style="flex:1;min-width:220px;padding:10px 12px;background:var(--dark);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
-        <button class="btn btn-gold" onclick="saveApiKey()">Save key</button>
-      </div>
-    </div>
-
-    <div id="adminPhaseControl" class="card" style="margin-bottom:20px">
+        <div id="adminPhaseControl" class="card" style="margin-bottom:20px">
       <div class="card-header"><strong>Betting Phase Control</strong></div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px">The <strong>active phase</strong> is what players see on "My Bets". Open or close each phase's betting independently.</div>
       <div style="display:flex;align-items:flex-start;gap:24px;flex-wrap:wrap">
@@ -1972,8 +1967,9 @@ async function renderSchedule(forceReload) {
       const mid = has
         ? `<span class="sched-score">${r.homeGoals} <span class="x">×</span> ${r.awayGoals}</span>`
         : `<span class="sched-time">${fmtKick(m.kickoff)}</span>`;
-      const status = has ? `<span class="sched-badge done">Full time</span>`
-                    : (started ? `<span class="sched-badge live">Kicked off</span>` : "");
+      const status = (has && r.live) ? liveBadge(r)
+                    : (has ? `<span class="sched-badge done">Full time</span>`
+                    : (started ? `<span class="sched-badge live">Kicked off</span>` : ""));
       html += `
       <div class="sched-row${has ? " has-score" : ""}">
         <div class="sched-kick">${fmtKick(m.kickoff)}<span class="sched-grp">Group ${m.group}</span></div>
@@ -2008,7 +2004,7 @@ function showPage(page) {
   if(page === "schedule") renderSchedule();
   if(page === "scoreboard") loadScoreboard();
   if(page === "admin-users") loadUsers();
-  if(page === "admin-results") { buildResultGroupTabs(); loadAdminResults(); loadPointsConfig(); loadApiKeyStatus(); }
+  if(page === "admin-results") { buildResultGroupTabs(); loadAdminResults(); loadPointsConfig(); }
   if(page === "admin-invites") loadInviteLink();
   if(page === "admin-points") loadPointsConfig();
 }
@@ -2198,6 +2194,11 @@ async function saveGroupBets() {
   setTimeout(() => { document.querySelectorAll(".match-card").forEach(c => c.style.borderColor = ""); }, 2000);
 }
 
+function liveBadge(r){
+  if(!r || !r.live) return "";
+  return `<span class="live-badge"><span class="dot"></span>LIVE${r.liveLabel ? " "+r.liveLabel : ""}</span>`;
+}
+
 function buildMatchCard(match, bet, result) {
   const hasResult = result && result.homeGoals !== undefined;
   // Lock a match for betting if the phase is closed OR an official result is in.
@@ -2210,13 +2211,14 @@ function buildMatchCard(match, bet, result) {
   if(result && result.homeGoals !== undefined && bet) {
     const pts = calcPoints(bet, result);
     const badge = getResultBadge(pts);
-    resultHtml = `<div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-      <span>Result: <strong>${result.homeGoals} × ${result.awayGoals}</strong></span>
+    resultHtml = `<div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+      ${result.live ? liveBadge(result) : ""}
+      <span>${result.live ? "Live" : "Result"}: <strong>${result.homeGoals} × ${result.awayGoals}</strong></span>
       <span class="result-badge badge-${badge.cls}">${badge.icon} ${badge.label}</span>
-      <span class="points-chip">+${pts} pts</span>
+      <span class="points-chip">+${pts} pts${result.live ? " (live)" : ""}</span>
     </div>`;
   } else if(result && result.homeGoals !== undefined) {
-    resultHtml = `<div style="margin-top:10px;color:var(--muted);font-size:12px">Result: <strong style="color:var(--text)">${result.homeGoals} × ${result.awayGoals}</strong> — you didn't place a bet</div>`;
+    resultHtml = `<div style="margin-top:10px;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${result.live ? liveBadge(result) : ""}<span>${result.live ? "Live" : "Result"}: <strong style="color:var(--text)">${result.homeGoals} × ${result.awayGoals}</strong> — you didn't place a bet</span></div>`;
   }
 
   const homeFlag = flagImg(match.homeTeam);
@@ -2228,7 +2230,7 @@ function buildMatchCard(match, bet, result) {
       <span class="tag">${match.group ? "Group "+match.group : (match.round||"")}</span>
       <span>📅 ${match.date || ""}${match.kickoff ? " · "+fmtKick(match.kickoff) : ""}</span>
       ${match.city ? `<span>📍 ${match.city}</span>` : ""}
-      ${hasResult ? '<span style="color:var(--green)">🔒 Result in — locked</span>' : (locked ? '<span style="color:var(--red)">🔒 Betting Closed</span>' : '')}
+      ${result && result.live ? liveBadge(result) : (hasResult ? '<span style="color:var(--green)">🔒 Result in — locked</span>' : (locked ? '<span style="color:var(--red)">🔒 Betting Closed</span>' : ''))}
     </div>
     <div class="match-teams">
       <div class="team-name">
@@ -2306,6 +2308,211 @@ async function saveBet(matchId, homeTeam, awayTeam) {
 // ═══════════════════════════════════════════════════════════
 //  SCOREBOARD
 // ═══════════════════════════════════════════════════════════
+let lastStandings = null;
+
+function _emailEsc(str){ return String(str==null?"":str).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function buildEmailLeaderboardHtml(s){
+  const POOL_NAME = "RB21 Brackets";
+  const SITE_URL = "wc26brackets.rossler.me";
+  const dateStr = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  const medal = rk => rk===1?'🥇':rk===2?'🥈':rk===3?'🥉':String(rk);
+  const rowsHtml = (s.rows && s.rows.length) ? s.rows.map((r,i)=>{
+    const bg = i%2 ? '#F4F6FF' : '#FFFFFF';
+    const rk = r.rank || (i+1);
+    return `<tr style="background:${bg}">
+      <td style="padding:11px 14px;font-weight:700;color:#0E1336;font-size:15px;text-align:center;width:46px">${medal(rk)}</td>
+      <td style="padding:11px 14px;color:#0E1336;font-size:15px;font-weight:${rk<=3?'700':'500'}">${_emailEsc(r.name)}</td>
+      <td style="padding:11px 14px;color:#E8730C;font-size:14px;text-align:center;font-weight:700">${r.perfect}</td>
+      <td style="padding:11px 14px;color:#0E1336;font-size:16px;text-align:right;font-weight:800">${r.pts}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="4" style="padding:22px;text-align:center;color:#7A82B4;font-size:14px">No scores yet.</td></tr>`;
+  return `<div style="margin:0;padding:0;background:#EEF1FB;font-family:Arial,Helvetica,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF1FB;padding:20px 0"><tr><td align="center">
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:560px;max-width:560px;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid #DDE3F7">
+      <tr><td style="background:#0E1336;padding:22px 24px">
+        <div style="color:#FFFFFF;font-size:22px;font-weight:800">🏆 ${_emailEsc(POOL_NAME)}</div>
+        <div style="color:#A8B0DA;font-size:13px;margin-top:4px">Leaderboard · ${dateStr}</div>
+      </td></tr>
+      <tr><td style="padding:11px 24px;color:#5A6196;font-size:12px;border-bottom:1px solid #EEF1FB">${s.gamesPlayed} matches played &nbsp;·&nbsp; Leader: <strong style="color:#0E1336">${_emailEsc(s.leader)}</strong></td></tr>
+      <tr><td style="padding:6px 12px 10px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+          <tr style="background:#0E1336">
+            <th style="padding:9px 14px;color:#A8B0DA;font-size:11px;text-align:center;width:46px">#</th>
+            <th style="padding:9px 14px;color:#A8B0DA;font-size:11px;text-align:left">PLAYER</th>
+            <th style="padding:9px 14px;color:#A8B0DA;font-size:11px;text-align:center">🎯</th>
+            <th style="padding:9px 14px;color:#A8B0DA;font-size:11px;text-align:right">PTS</th>
+          </tr>
+          ${rowsHtml}
+        </table>
+      </td></tr>
+      <tr><td style="padding:14px 24px;color:#9098C4;font-size:11px;text-align:center;border-top:1px solid #EEF1FB">${_emailEsc(SITE_URL)} — good luck! 🍀</td></tr>
+    </table>
+  </td></tr></table>
+</div>`;
+}
+
+function emailPlainText(s){
+  const lines = ["RB21 Brackets — Leaderboard", s.gamesPlayed+" matches played", ""];
+  (s.rows||[]).forEach((r,i)=>lines.push((r.rank||(i+1))+". "+r.name+" — "+r.pts+" pts ("+r.perfect+" perfect)"));
+  return lines.join("\n");
+}
+
+function openEmailLeaderboard(){
+  if(!lastStandings || !lastStandings.rows){ showToast("Open or refresh the Leaderboard first.","error"); return; }
+  window._emailHtml = buildEmailLeaderboardHtml(lastStandings);
+  let ov = document.getElementById("emailOverlay");
+  if(!ov){
+    ov = document.createElement("div");
+    ov.id = "emailOverlay";
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px";
+    ov.innerHTML = `<div style="background:var(--card);border-radius:16px;max-width:640px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border,#2A3470)">
+      <div style="padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border,#2A3470)"><strong style="font-size:16px;color:#fff">📧 Email-ready leaderboard</strong><button class="btn btn-ghost" onclick="document.getElementById('emailOverlay').style.display='none'">✕</button></div>
+      <div style="padding:12px 18px;font-size:12px;color:var(--muted)">Click <strong>Copy for email</strong>, then paste (Ctrl/Cmd+V) into Gmail or Outlook — the formatting is preserved.</div>
+      <iframe id="emailFrame" style="border:0;flex:1;min-height:430px;background:#EEF1FB;border-radius:10px;margin:0 16px"></iframe>
+      <div style="padding:16px 20px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--border,#2A3470)"><button class="btn btn-ghost" onclick="openEmailTab()">Open in new tab</button><button class="btn btn-ghost" onclick="downloadLeaderboardImage('png')">🖼 PNG</button><button class="btn btn-ghost" onclick="downloadLeaderboardImage('jpg')">JPG</button><button class="btn btn-gold" onclick="copyEmailLeaderboard()">📋 Copy for email</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  ov.style.display = "flex";
+  ov.querySelector("#emailFrame").srcdoc = window._emailHtml;
+}
+
+async function copyEmailLeaderboard(){
+  const html = window._emailHtml || "";
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/html": new Blob([html], {type:"text/html"}),
+      "text/plain": new Blob([emailPlainText(lastStandings)], {type:"text/plain"})
+    })]);
+    showToast("✅ Copied — paste into your email");
+  } catch(e) {
+    openEmailTab();
+    showToast("Use the new tab: Select All (Ctrl/Cmd+A) → Copy.", "error", 4500);
+  }
+}
+
+function openEmailTab(){
+  const w = window.open("", "_blank");
+  if(w){ w.document.open(); w.document.write(window._emailHtml || ""); w.document.close(); }
+  else showToast("Allow pop-ups to open the preview tab.", "error");
+}
+
+function _roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function downloadLeaderboardImage(format){
+  if(!lastStandings || !lastStandings.rows){ showToast("Open or refresh the Leaderboard first.","error"); return; }
+  const s = lastStandings;
+  const POOL_NAME = "RB21 Brackets";
+  const SITE_URL = "wc26brackets.rossler.me";
+  const hasPool = s.pool != null;
+  const rows = s.rows || [];
+  const FONT = "Arial, Helvetica, sans-serif";
+  const scale = 2;
+  const W = 640, cardX = 20, cardW = W - 40, cardY = 20;
+  const tableX = cardX + 12, tableW = cardW - 24;
+  const headerH = 72, prizeH = hasPool ? 42 : 0, metaH = 36, theadH = 34, rowH = 40, footerH = 38;
+  const cardH = headerH + prizeH + metaH + theadH + (rows.length||1)*rowH + footerH;
+  const H = cardY + cardH + 20;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W*scale; canvas.height = H*scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = "#EEF1FB"; ctx.fillRect(0,0,W,H);
+  _roundRect(ctx, cardX, cardY, cardW, cardH, 14); ctx.fillStyle = "#FFFFFF"; ctx.fill();
+  ctx.save(); _roundRect(ctx, cardX, cardY, cardW, cardH, 14); ctx.clip();
+
+  ctx.fillStyle = "#0E1336"; ctx.fillRect(cardX, cardY, cardW, headerH);
+  ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+  ctx.fillStyle = "#FFFFFF"; ctx.font = "800 22px "+FONT;
+  ctx.fillText("🏆 "+POOL_NAME, cardX+24, cardY+34);
+  ctx.fillStyle = "#A8B0DA"; ctx.font = "13px "+FONT;
+  const dateStr = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  ctx.fillText("Leaderboard · "+dateStr, cardX+24, cardY+56);
+
+  let y = cardY + headerH;
+  if(hasPool){
+    ctx.fillStyle = "#E8730C"; ctx.fillRect(cardX, y, cardW, prizeH);
+    ctx.fillStyle = "#FFFFFF"; ctx.font = "700 14px "+FONT; ctx.textAlign = "left";
+    ctx.fillText("Prize Pool "+money(s.pool)+"    🥇 "+money(s.prize1)+"   🥈 "+money(s.prize2)+"   🥉 "+money(s.prize3), cardX+24, y+26);
+    y += prizeH;
+  }
+  ctx.fillStyle = "#5A6196"; ctx.font = "12px "+FONT; ctx.textAlign = "left";
+  ctx.fillText((hasPool? s.playerCount+" players · " : "") + s.gamesPlayed + " matches played · Leader: " + s.leader, cardX+24, y+23);
+  ctx.strokeStyle = "#EEF1FB"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cardX, y+metaH); ctx.lineTo(cardX+cardW, y+metaH); ctx.stroke();
+  y += metaH;
+
+  const hashCenter = tableX + 23, ptsRight = tableX + tableW - 16, perfCenter = tableX + tableW - 80, nameX = tableX + 52, nameMaxRight = perfCenter - 44;
+  ctx.fillStyle = "#0E1336"; ctx.fillRect(tableX, y, tableW, theadH);
+  ctx.fillStyle = "#A8B0DA"; ctx.font = "11px "+FONT;
+  ctx.textAlign="center"; ctx.fillText("#", hashCenter, y+22);
+  ctx.textAlign="left"; ctx.fillText("PLAYER", nameX, y+22);
+  ctx.textAlign="center"; ctx.fillText("🎯", perfCenter, y+22);
+  ctx.textAlign="right"; ctx.fillText("PTS", ptsRight, y+22);
+  y += theadH;
+
+  const medal = rk => rk===1?'🥇':rk===2?'🥈':rk===3?'🥉':String(rk);
+  if(!rows.length){
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(tableX, y, tableW, rowH);
+    ctx.fillStyle = "#7A82B4"; ctx.font = "14px "+FONT; ctx.textAlign="center";
+    ctx.fillText("No scores yet.", tableX+tableW/2, y+rowH/2+5); y += rowH;
+  }
+  rows.forEach((r,i)=>{
+    const rk = r.rank || (i+1);
+    ctx.fillStyle = (i%2)? "#F4F6FF" : "#FFFFFF"; ctx.fillRect(tableX, y, tableW, rowH);
+    const midY = y + rowH/2 + 5;
+    ctx.fillStyle = "#0E1336"; ctx.textAlign="center"; ctx.font = "700 15px "+FONT;
+    ctx.fillText(medal(rk), hashCenter, midY);
+    ctx.textAlign="left"; ctx.font = (rk<=3?"700 ":"500 ")+"15px "+FONT; ctx.fillStyle="#0E1336";
+    let nm = r.name||""; const maxW = nameMaxRight - nameX;
+    if(ctx.measureText(nm).width > maxW){ while(nm.length>1 && ctx.measureText(nm+"…").width > maxW) nm = nm.slice(0,-1); nm += "…"; }
+    ctx.fillText(nm, nameX, midY);
+    ctx.textAlign="center"; ctx.font="700 14px "+FONT; ctx.fillStyle="#E8730C";
+    ctx.fillText(String(r.perfect||0), perfCenter, midY);
+    ctx.textAlign="right"; ctx.font="800 16px "+FONT; ctx.fillStyle="#0E1336";
+    ctx.fillText(String(r.pts), ptsRight, midY);
+    y += rowH;
+  });
+
+  ctx.textAlign="center"; ctx.fillStyle="#9098C4"; ctx.font="11px "+FONT;
+  ctx.fillText(SITE_URL+" — good luck! 🍀", cardX+cardW/2, y+24);
+  ctx.restore();
+
+  const isJpg = format === 'jpg';
+  const mime = isJpg ? 'image/jpeg' : 'image/png';
+  const fname = "leaderboard-" + new Date().toISOString().slice(0,10) + (isJpg?'.jpg':'.png');
+  canvas.toBlob(blob=>{
+    if(!blob){ showToast("Could not generate image.","error"); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+    showToast("✅ Saved "+fname);
+  }, mime, isJpg?0.95:undefined);
+}
+
+// Auto-refresh open data views every 5 minutes so scores update without a manual refresh
+setInterval(() => {
+  try {
+    if(!firebase.auth().currentUser) return;
+    const active = document.querySelector(".page.active");
+    const id = active ? active.id : "";
+    if(id === "page-scoreboard" && typeof loadScoreboard === "function") loadScoreboard();
+    else if(id === "page-admin-results" && typeof isAdmin !== "undefined" && isAdmin && typeof loadAdminResults === "function") loadAdminResults();
+    else if(id === "page-schedule" && typeof renderSchedule === "function") renderSchedule();
+  } catch(e) {}
+}, 5 * 60 * 1000);
+
 async function loadScoreboard() {
   document.getElementById("sbBody").innerHTML = `<tr><td colspan="5" class="loader"><div class="spinner"></div></td></tr>`;
   
@@ -2327,11 +2534,16 @@ async function loadScoreboard() {
       userMap[doc.id] = d.name || d.email;
     });
 
+    // Betting is closed: only players who actually placed at least one bet are in the pool.
+    const bettors = new Set();
+    betsSnap.forEach(doc => { const b = doc.data(); if(b.userId && !adminSet.has(b.userId)) bettors.add(b.userId); });
+    const activeUids = Object.keys(userMap).filter(uid => bettors.has(uid));
+
     const scores = {};
     const details = {};
     betsSnap.forEach(doc => {
       const bet = doc.data();
-      if(adminSet.has(bet.userId)) return;   // never score admin accounts
+      if(!userMap[bet.userId]) return;   // skip admins, removed users, and non-players
       const result = results[bet.matchId];
       if(!result || result.homeGoals === undefined) return;
       
@@ -2342,23 +2554,43 @@ async function loadScoreboard() {
       else if(pts > 0) details[bet.userId].partial++;
     });
 
-    const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
-    document.getElementById("sbParticipants").textContent = Object.keys(userMap).length;
+    const _firstName = s => String(s||"").trim().split(/\s+/)[0].toLowerCase();
+    const ranked = Object.keys(scores).map(uid => ({
+      uid, pts: scores[uid], name: userMap[uid] || uid,
+      perfect: (details[uid]&&details[uid].perfect)||0,
+      partial: (details[uid]&&details[uid].partial)||0
+    }));
+    ranked.sort((a,b)=> (b.pts - a.pts)
+      || _firstName(a.name).localeCompare(_firstName(b.name))
+      || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    // dense ranking: each distinct points total is one place; ties share it (1, 2, 2, 3)
+    let _rank = 0, _prev = null;
+    ranked.forEach((r)=>{ if(r.pts !== _prev){ _rank += 1; _prev = r.pts; } r.rank = _rank; });
+
+    document.getElementById("sbParticipants").textContent = activeUids.length;
     document.getElementById("sbGamesPlayed").textContent = Object.keys(results).filter(r=>results[r].homeGoals!==undefined).length;
-    document.getElementById("sbLeader").textContent = sorted.length ? (userMap[sorted[0][0]] || "?") : "-";
+    document.getElementById("sbLeader").textContent = ranked.length ? ranked[0].name : "-";
+
+    lastStandings = {
+      rows: ranked.map(r => ({ name: r.name, perfect: r.perfect, partial: r.partial, pts: r.pts, rank: r.rank })),
+      playerCount: activeUids.length,
+      gamesPlayed: Object.keys(results).filter(r=>results[r].homeGoals!==undefined).length,
+      leader: ranked.length ? ranked[0].name : "-"
+    };
 
     const rankCls = ["rank-1","rank-2","rank-3"];
-    document.getElementById("sbBody").innerHTML = sorted.length
-      ? sorted.map(([uid, pts], i) => `
-        <tr class="${rankCls[i]||""}">
-          <td>${i===0?"🥇":i===1?"🥈":i===2?"🥉":i+1}</td>
+    const medalOf = rk => rk===1?"🥇":rk===2?"🥈":rk===3?"🥉":rk;
+    document.getElementById("sbBody").innerHTML = ranked.length
+      ? ranked.map(r => `
+        <tr class="${rankCls[r.rank-1]||""}">
+          <td>${medalOf(r.rank)}</td>
           <td><div style="display:flex;align-items:center;gap:10px">
-            <div class="avatar">${(userMap[uid]||"?")[0].toUpperCase()}</div>
-            ${userMap[uid]||uid}
+            <div class="avatar">${(r.name||"?")[0].toUpperCase()}</div>
+            ${r.name}
           </div></td>
-          <td><span style="color:var(--gold)">${details[uid]?.perfect||0} 🎯</span></td>
-          <td>${details[uid]?.partial||0}</td>
-          <td class="pts-cell">${pts}</td>
+          <td><span style="color:var(--gold)">${r.perfect} 🎯</span></td>
+          <td>${r.partial}</td>
+          <td class="pts-cell">${r.pts}</td>
         </tr>`).join("")
       : `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--muted)">No scores yet. Points will appear as match results are entered.</td></tr>`;
   } catch(e) {
@@ -2674,57 +2906,19 @@ async function loadApiKeyStatus() {
 
 async function fetchLiveResults() {
   if(!isAdmin) return;
-  showToast("🔄 Fetching results…");
+  showToast("🔄 Fetching live scores…");
   try {
     if(typeof firebase.functions !== "function") throw new Error("Functions SDK not loaded");
-    const call = firebase.functions().httpsCallable("fetchWcResults");
-    const resp = await call({});
-    const fixtures = (resp.data && resp.data.fixtures) || [];
-    if(!fixtures.length) { showToast("No finished matches yet.", "error", 3500); return; }
-
-    const ALIAS = {
-      "korea republic":"south korea","korea south":"south korea","south korea":"south korea",
-      "czech republic":"czechia","czechia":"czechia",
-      "usa":"united states","united states of america":"united states","united states":"united states",
-      "bosnia and herzegovina":"bosnia","bosnia herzegovina":"bosnia","bosnia":"bosnia",
-      "turkiye":"turkey","turkey":"turkey",
-      "cote d ivoire":"ivory coast","cote divoire":"ivory coast","ivory coast":"ivory coast",
-      "ir iran":"iran","islamic republic of iran":"iran","iran":"iran",
-      "cabo verde":"cape verde","cape verde":"cape verde",
-      "congo dr":"dr congo","democratic republic of the congo":"dr congo","dr congo":"dr congo","congo democratic republic":"dr congo"
-    };
-    const norm = (s) => {
-      const base = (s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-        .toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
-      return ALIAS[base] || base;
-    };
-
-    const byPair = {};
-    GROUP_MATCHES.forEach(m => { byPair[[norm(m.homeTeam), norm(m.awayTeam)].sort().join("|")] = m; });
-
-    let updated = 0; const unmatched = [];
-    for(const fx of fixtures) {
-      if(fx.homeGoals == null || fx.awayGoals == null) continue;
-      const nh = norm(fx.home), na = norm(fx.away);
-      const m = byPair[[nh, na].sort().join("|")];
-      if(!m) { unmatched.push(fx.home + " vs " + fx.away); continue; }
-      const sameOrder = norm(m.homeTeam) === nh;
-      await col("results").doc(m.id).set({
-        matchId: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam,
-        homeGoals: sameOrder ? fx.homeGoals : fx.awayGoals,
-        awayGoals: sameOrder ? fx.awayGoals : fx.homeGoals,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(), auto: true
-      });
-      updated++;
-    }
-    showToast("✅ Updated " + updated + " result" + (updated===1?"":"s") + (unmatched.length ? " · " + unmatched.length + " unmatched (check console)" : ""));
-    if(unmatched.length) console.warn("Unmatched fixtures:", unmatched);
+    const resp = await firebase.functions().httpsCallable("fetchWcResults")({});
+    const d = resp.data || {};
+    const n = d.count || 0, live = d.live || 0;
+    showToast("✅ Updated " + n + " result" + (n===1?"":"s") + (live ? " · " + live + " live ●" : ""));
+    if(d.unmatched && d.unmatched.length) console.warn("Unmatched fixtures:", d.unmatched);
     if(typeof loadAdminResults === "function") loadAdminResults();
+    if(typeof loadScoreboard === "function") loadScoreboard();
   } catch(e) {
     const msg = e.message || String(e);
-    if(/not-found|INTERNAL|not deployed|Functions SDK|precondition|No API key/i.test(msg))
-      showToast("Set up the API key first (Results API Key) and deploy the function.", "error", 4500);
-    else showToast("Fetch failed: " + msg, "error", 4500);
+    showToast(/not-found|INTERNAL|not deployed|Functions SDK/i.test(msg) ? "Results function not deployed yet." : ("Fetch failed: " + msg), "error", 4500);
   }
 }
 
