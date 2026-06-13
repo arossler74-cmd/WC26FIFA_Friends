@@ -962,7 +962,7 @@ select.input-select:focus { outline: none; border-color: var(--gold); }
     <div class="section-header">
       <div>
         <div class="section-title">🏆 Leaderboard</div>
-        <div class="section-sub">Overall pool standings</div>
+        <div class="section-sub">Overall pool standings · tap a player to see their picks</div>
       </div>
       <div style="display:flex;gap:10px"><button class="btn btn-gold" onclick="openEmailLeaderboard()">📧 Email Version</button><button class="btn btn-ghost" onclick="loadScoreboard()">↻ Refresh</button></div>
     </div>
@@ -2309,6 +2309,54 @@ async function saveBet(matchId, homeTeam, awayTeam) {
 //  SCOREBOARD
 // ═══════════════════════════════════════════════════════════
 let lastStandings = null;
+let _sbResults = {}, _sbNames = {}, _sbBetsByUser = {};
+
+function openUserBreakdown(uid){
+  const name = _sbNames[uid] || "Player";
+  const bets = _sbBetsByUser[uid] || {};
+  const results = _sbResults || {};
+  const order = (typeof ALL_MATCHES !== "undefined" && ALL_MATCHES && ALL_MATCHES.length) ? ALL_MATCHES : GROUP_MATCHES;
+  let total = 0, perfect = 0, played = 0;
+  const rowsHtml = order.map(m => {
+    const r = results[m.id];
+    if(!r || r.homeGoals === undefined) return "";
+    played++;
+    const bet = bets[m.id];
+    let pickCell, ptsCell;
+    if(bet){
+      const pts = calcPoints(bet, r); total += pts;
+      const b = getResultBadge(pts);
+      if(pts >= pointsConfig.perfect) perfect++;
+      pickCell = `<strong>${bet.homeGoals} × ${bet.awayGoals}</strong>`;
+      ptsCell = `<span class="result-badge badge-${b.cls}" style="font-size:10px">${b.icon}</span> <strong>+${pts}</strong>`;
+    } else {
+      pickCell = `<span style="color:var(--muted)">no pick</span>`;
+      ptsCell = `<span style="color:var(--muted)">—</span>`;
+    }
+    const liveTag = r.live ? ` <span class="live-badge"><span class="dot"></span>LIVE${r.liveLabel ? " "+r.liveLabel : ""}</span>` : "";
+    return `<tr style="border-top:1px solid var(--border,#2A3470)">
+      <td style="padding:9px 12px;font-size:13px">${flagImg(m.homeTeam)} ${m.homeTeam} <span style="color:var(--muted)">×</span> ${m.awayTeam} ${flagImg(m.awayTeam)}${liveTag}</td>
+      <td style="padding:9px 12px;text-align:center;font-size:13px">${pickCell}</td>
+      <td style="padding:9px 12px;text-align:center;font-weight:800">${r.homeGoals} × ${r.awayGoals}</td>
+      <td style="padding:9px 12px;text-align:right;white-space:nowrap;font-size:13px">${ptsCell}</td>
+    </tr>`;
+  }).join("");
+  const body = played ? `<table style="width:100%;border-collapse:collapse">
+      <tr style="text-align:left;color:var(--muted);font-size:11px">
+        <th style="padding:9px 12px">MATCH</th><th style="padding:9px 12px;text-align:center">PICK</th><th style="padding:9px 12px;text-align:center">RESULT</th><th style="padding:9px 12px;text-align:right">PTS</th>
+      </tr>${rowsHtml}</table>`
+    : `<div style="padding:28px;text-align:center;color:var(--muted)">No finished matches yet for this player.</div>`;
+  let ov = document.getElementById("breakdownOverlay");
+  if(!ov){ ov = document.createElement("div"); ov.id = "breakdownOverlay"; ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px"; document.body.appendChild(ov); }
+  ov.innerHTML = `<div style="background:var(--card);border-radius:16px;max-width:660px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border,#2A3470)">
+    <div style="padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border,#2A3470)">
+      <div><strong style="font-size:17px;color:#fff">${name}</strong><div style="font-size:12px;color:var(--muted);margin-top:2px">${total} pts · ${perfect} perfect · ${played} played</div></div>
+      <button class="btn btn-ghost" onclick="document.getElementById('breakdownOverlay').remove()">✕</button>
+    </div>
+    <div style="overflow:auto">${body}</div>
+  </div>`;
+  ov.style.display = "flex";
+}
 
 function _emailEsc(str){ return String(str==null?"":str).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -2554,6 +2602,11 @@ async function loadScoreboard() {
       else if(pts > 0) details[bet.userId].partial++;
     });
 
+    _sbResults = results;
+    _sbNames = userMap;
+    _sbBetsByUser = {};
+    betsSnap.forEach(doc => { const b = doc.data(); if(!userMap[b.userId]) return; (_sbBetsByUser[b.userId] = _sbBetsByUser[b.userId] || {})[b.matchId] = b; });
+
     const _firstName = s => String(s||"").trim().split(/\s+/)[0].toLowerCase();
     const ranked = Object.keys(scores).map(uid => ({
       uid, pts: scores[uid], name: userMap[uid] || uid,
@@ -2582,7 +2635,7 @@ async function loadScoreboard() {
     const medalOf = rk => rk===1?"🥇":rk===2?"🥈":rk===3?"🥉":rk;
     document.getElementById("sbBody").innerHTML = ranked.length
       ? ranked.map(r => `
-        <tr class="${rankCls[r.rank-1]||""}">
+        <tr class="${rankCls[r.rank-1]||""}" onclick="openUserBreakdown('${r.uid}')" style="cursor:pointer" title="Tap to see picks">
           <td>${medalOf(r.rank)}</td>
           <td><div style="display:flex;align-items:center;gap:10px">
             <div class="avatar">${(r.name||"?")[0].toUpperCase()}</div>
